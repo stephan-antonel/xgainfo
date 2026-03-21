@@ -19,7 +19,7 @@ By default xgainfo will display the same basic info that the reference disk does
 |-h      |       |Displays command line arguments||
 |-f      |filename|Send output to a file instead of the screen|xgainfo -f output.txt|
 |-p      |       |Pauses output every 25 lines so output does not immediately scroll off the screen|
-|-s      |params|Show certain information specified by params|xgainfo -s pix (See table below)|
+|-s      |Options|Show certain information specified by params|xgainfo -s pix (See table below)|
 |-a      |       |Displays all information available||
 
 
