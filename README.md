@@ -11,14 +11,14 @@ By default xgainfo will display the same basic info that the reference disk does
 |Argument|Options|Details|Example|
 |--------|-------|-------|-------|
 |-h      |       |Displays command line arguments||
-|-f      |<filename>|Send output to a file instead of the screen|xgainfo -f output.txt|
+|-f      |filename|Send output to a file instead of the screen|xgainfo -f output.txt|
 |-p      |       |Pauses output every 25 lines so output does not immediately scroll off the screen|
-|-s      |<params>|Show certain information specified by params|xgainfo -s pix (See table below)|
+|-s      |params|Show certain information specified by params|xgainfo -s pix (See table below)|
 |-a      |       |Displays all information available||
 
 
 |Option|Details|
-----------------
+|------|-------|
 |p|Show contents of POS registers|
 |i|Show contents of I/O registers|
 |x|Show contents of indexed I/O registers|
