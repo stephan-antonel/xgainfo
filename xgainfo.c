@@ -4,9 +4,22 @@
 #include <conio.h>
 #include <string.h>
 
-#define SHOW_POS	 1
-#define SHOW_IO	 1 << 1
-#define SHOW_INDEX 1 << 2
+#define VERSION "1.1"
+
+#define IOREG_OPMODE	0x00
+#define IOREG_APCTL	0x01
+#define IOREG_INTEN	0x04
+#define IOREG_APBANK 0x08
+#define IOREG_INDEX	0x0A
+#define IOREG_DATA	0x0B
+
+#define APERTURE_64K	0xA000  //Should this be (unsigned char* far)0xA0000000L?
+
+#define SHOW_POS	 	1
+#define SHOW_IO	 	1 << 1
+#define SHOW_INDEX 	1 << 2
+#define SHOW_MEM	 	1 << 3
+#define SHOW_MONITOR 1 << 4
 
 FILE *fp = stdout;
 
@@ -146,6 +159,7 @@ uint16_t CheckSlot(uint8_t slot)
 	return posid;
 }
 
+//Extended printf. Allows features like output to file, page breaks
 void XPrintf(const char *format, ...)
 {
 	static uint8_t lines = 0;
@@ -201,6 +215,94 @@ char *BinByte(uint8_t b)
 	return str;
 }
 
+//Returns the size of XGA VRAM in kb
+//Requires enabling XGA extended mode
+uint16_t XgaMemSize(uint16_t ioRegBase)
+{
+	uint16_t memSize = 0;
+
+	asm mov al, 0x00; 	  //Disable XGA interrupts
+	asm mov dx, ioRegBase;
+	asm add dx, IOREG_INTEN;
+	asm out dx, al;
+	asm mov al, 0x04;		  //Enable XGA extended mode
+	asm mov dx, ioRegBase;
+	asm out dx, al;
+	asm xor ah, ah;		  //Blank the screen
+	asm mov al, 0x64;
+	asm add dx, IOREG_INDEX;
+	asm out dx, ax;
+	asm mov al, 0x01;		 //Enable the 64k aperture
+	asm mov dx, ioRegBase;
+	asm add dx, IOREG_APCTL;
+	asm out dx, al;
+	asm mov ax, APERTURE_64K;	//Load the aperture address into es
+	asm mov es, ax;
+	asm mov ax, 0x03;			//Search pages 3 - 8 to tally up the RAM
+	asm mov cx, 0x08;
+	asm push cx;
+
+	pageloop:
+	asm mov dx, ioRegBase;
+	asm add dx, IOREG_APBANK;
+	asm out dx, al;
+	asm add al, 0x04;
+	asm mov bh, byte ptr es:[0xFFFE];
+	asm mov byte ptr es:[0xFFFE], 0xA5;
+	asm mov byte ptr es:[0x00], 0x00;
+	asm cmp byte ptr es:[0xFFFE], 0xA5;
+	asm jne endcount;
+	asm mov byte ptr es:[0xFFFE], 0xA5;	//No idea why we have to do this twice...
+	asm mov byte ptr es:[0x00], 0x00;
+	asm cmp byte ptr es:[0xFFFE], 0xA5;
+	asm jne endcount;
+	asm mov byte ptr es:[0xFFFE], bh;
+	asm loop pageloop;
+
+	endcount:
+	asm pop ax;
+	asm sub ax, cx;
+	asm mov memSize, ax;
+
+	asm mov dx, ioRegBase;	//Disable XGA extended mode
+	asm mov al, 0x00;
+	asm out dx, al;
+
+	return (memSize + 4) * 64;
+}
+
+void XgaMonitorInfo(void)
+{
+	uint8_t dispCtl;
+	uint8_t monitorId;
+
+	asm mov dx, IOREG_INDEX;
+	asm mov ax, 0x0052;
+	asm out dx, ax;
+	asm inc dx;
+	asm in al, dx;
+	asm mov dispCtl, al;
+	asm and al, 0x0F;
+	asm mov monitorId, al;
+
+	XPrintf("\nMonitor Info\n");
+	XPrintf("============\n");
+	XPrintf("Monitor ID:           %02Xh %s\n", monitorId, BinByte(monitorId));
+
+	switch(monitorId)
+	{
+		case 0x0F: XPrintf("No monitor detected. \n"); break;
+		case 0x0E: XPrintf("Monitor type:         IBM 8512/8513\n"); break;
+		case 0x0D: XPrintf("Monitor type:         IBM 8503\n"); break;
+		case 0x0C: XPrintf("Monitor type:         IBM 8515\n"); break;
+		case 0x0B: XPrintf("Monitor type:         IBM 8514\n"); break;
+		case 0x09: XPrintf("Monitor type:         IBM 8507/8604\n"); break;
+		default:   XPrintf("Monitor type:         Unidentified\n"); break;
+	}
+
+	XPrintf("\n");
+}
+
 //Does what it says: shows information about the XGA card
 void XgaInfo(uint8_t slot)
 {
@@ -209,6 +311,8 @@ void XgaInfo(uint8_t slot)
 	uint8_t instance;
 	uint8_t arb;
 	uint8_t reg;
+	uint8_t mem;
+	uint16_t cardId;
 	uint16_t ioRegBase;
 	uint32_t memRegBase;
 	uint32_t romBase;
@@ -227,6 +331,7 @@ void XgaInfo(uint8_t slot)
 	for(i = 0; i < 6; i++)
 		pos[i] = inp(0x100 + i);
 
+	cardId = (pos[1] << 8) | pos[0];
 	instance = (pos[2] & 0x0F) >> 1;
 	ioRegBase = 0x2100 | (instance << 4);
 	romBase = (pos[2] & 0xF0) >> 4;
@@ -253,6 +358,7 @@ void XgaInfo(uint8_t slot)
 	else
 		SetupSlot(slot, 0);
 
+	XPrintf("Type:                 %s (%04Xh)\n", (cardId == 0x8FDA) ? "XGA2" : "XGA", cardId);
 	XPrintf("Instance #:           %d (card enable %s)\n", instance, (pos[2] & 0x01) ? "on" : "off");
 	XPrintf("ROM Base:             %lXh\n", romBase);
 	XPrintf("IO Register Base:     %04Xh\n", ioRegBase);
@@ -260,36 +366,37 @@ void XgaInfo(uint8_t slot)
 	XPrintf("Arbitration level:    %d (fairness %s)\n", arb, (pos[2] & 0x04) ? "on" : "off");
 	XPrintf("64K aperture:         %lXh %s\n", aperture[0], (aperture[0] == 0) ? "(disabled)" : "");
 	XPrintf("1MB aperture:         %lXh %s\n", aperture[1], (aperture[1] == 0) ? "(disabled)" : "");
-	XPrintf("4MB aperture:         %lXh %s\n\n" , aperture[2], (aperture[2] == 0) ? "(disabled)" : "");
+	XPrintf("4MB aperture:         %lXh %s\n" , aperture[2], (aperture[2] == 0) ? "(disabled)" : "");
+
+	if(show & SHOW_MEM)
+		XPrintf("Memory:               %dKB\n", XgaMemSize(ioRegBase));
+
+	if(show & SHOW_MONITOR)
+		XgaMonitorInfo();
 
 	if(show & SHOW_POS)
 	{
-		//printf("POS Registers: \n");
-		//printf("Register  Hex	Bin\n");
-		//printf("--------  ---   ----\n");
+		XPrintf("\n");
 
-
-		for(i = 0; i < 5; i++)
+		for(i = 0; i < 6; i++)
 			XPrintf("POS %02Xh:   %02Xh   %s\n", 0x100 + i, pos[i], BinByte(pos[i]));
 	}
 
 	if(show & SHOW_IO)
 	{
-		//Temporarily put the card into XGA extended mode
-		//XgaWriteIO(ioRegBase, 0, 0x04);
+		XPrintf("\n");
 
 		for(i = 0; i < 0x0F; i++)
 		{
 			reg = XgaReadIO(ioRegBase, i);
 			XPrintf("IO  %02Xh:  %02Xh   %s\n", ioRegBase + i, reg, BinByte(reg));
 		}
-
-		//Set it back to VGA
-		//XgaWriteIO(ioRegBase, 0, 0x00);
 	}
 
 	if(show & SHOW_INDEX)
 	{
+		XPrintf("\n");
+
 		for(i = 0; i <= 0x70; i++)
 		{
 			XgaWriteIO(ioRegBase, 0x0A, i);
@@ -301,6 +408,8 @@ void XgaInfo(uint8_t slot)
 	XPrintf("\n");
 }
 
+//Search the command line for a specific parameter (argument)
+//Returns the index into the list if it is found, -1 otherwise
 int CheckParam(int argc, char **argv, const char *check)
 {
 	int i;
@@ -314,6 +423,7 @@ int CheckParam(int argc, char **argv, const char *check)
 	return -1;
 }
 
+//Used by the -s argument. Sets the corresponding flag if found.
 void CheckShow(char *str, char opt, uint8_t flag)
 {
 	char *ptr = str;
@@ -328,11 +438,12 @@ void CheckShow(char *str, char opt, uint8_t flag)
 	}
 }
 
+//main is main
 int main(int argc, char **argv)
 {
 	int i, pos;
 
-	printf("XGAINFO by Stephan Antonel 2026\n");
+	printf("XGAINFO by Stephan Antonel - Version %s 2026\n", VERSION);
 	printf("Run \"XGAINFO -h\" for usage\n\n");
 
 	if(CheckParam(argc, argv, "-h") >= 0)
@@ -343,11 +454,12 @@ int main(int argc, char **argv)
 		printf("-f <file>        Output to a file instead of stdout\n");
 		printf("-a               Show everything (supersedes -s)\n");
 		printf("-p               Pause every 25 lines\n");
-		//printf("-i <inst #>		 Show only the specified instance\n");
 		printf("-s <params>      Show various other information\n");
 		printf("                 p = show POS registers\n");
 		printf("                 i = show IO registers\n");
 		printf("                 x = show indexed registers\n\n");
+		printf("                 m = show memory size\n");
+		printf("                 d = show monitor information\n");
 
 		return 0;
 	}
@@ -379,17 +491,11 @@ int main(int argc, char **argv)
 			CheckShow(argv[pos], 'p', SHOW_POS);
 			CheckShow(argv[pos], 'i', SHOW_IO);
 			CheckShow(argv[pos], 'x', SHOW_INDEX);
+			CheckShow(argv[pos], 'm', SHOW_MEM);
+			CheckShow(argv[pos], 'd', SHOW_MONITOR);
 		}
 	}
-	/*
-	if((pos = CheckParam(argc, argv, "-i")) >= 0)
-	{
-		if(++pos < argc)
-			inst = atoi(argv[pos]);
-		else
-			inst = 0;
-	}
-	*/
+
 	if(!CheckInterrupt())
 	{
 		printf("Error: Not an MCA system \ Int 15h not available.\n");
