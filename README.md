@@ -19,7 +19,7 @@ By default xgainfo will display the same basic info that the reference disk does
 |-h      |       |Displays command line arguments||
 |-f      |filename|Send output to a file instead of the screen|xgainfo -f output.txt|
 |-p      |       |Pauses output every 25 lines so output does not immediately scroll off the screen|
-|-s      |Options|Show certain information specified by params|xgainfo -s pix (See table below)|
+|-s      |Option |Show certain information specified by params|xgainfo -s pix (See table below)|
 |-a      |       |Displays all information available||
 
 
@@ -28,6 +28,8 @@ By default xgainfo will display the same basic info that the reference disk does
 |p|Show contents of POS registers|
 |i|Show contents of I/O registers|
 |x|Show contents of indexed I/O registers|
+|m|Show memory size|
+|d|Show monitor information|
 
 1.Multiple params can be specified (do not use spaces): xgainfo -s ixp  
 
